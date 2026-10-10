@@ -36,7 +36,7 @@ main, canvas {
 }
 
 canvas {
-  filter: saturate(1.12) contrast(1.08) brightness(0.95);
+  background: #02060b;
 }
 
 #hud {
