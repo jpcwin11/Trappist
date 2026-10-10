@@ -76,11 +76,11 @@
     } else {
       say(`${mode === "rover" ? "Rover" : "Suit"} scanner: basaltic plain, trace minerals detected.`);
     }
+  }
 
-    function fire() {
-      shots.push({ life: .18 });
-      say("Pulse round fired.");
-    }
+  function fire() {
+    shots.push({ life: .18 });
+    say("Pulse round fired.");
   }
 
   function update(dt) {
