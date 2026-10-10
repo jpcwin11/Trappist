@@ -1,0 +1,33 @@
+:root {
+  background: #030611;
+  color: #d8f7ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; overflow: hidden; }
+
+main, canvas { display: block; height: 100vh; width: 100vw; }
+
+#hud {
+  left: 1.5rem;
+  pointer-events: none;
+  position: fixed;
+  text-shadow: 0 0 8px #4ae;
+  top: 1rem;
+}
+
+h1 { font-size: clamp(1rem, 2vw, 1.4rem); letter-spacing: .2em; margin: 0 0 .5rem; }
+p { font-size: .75rem; margin: .3rem 0; }
+
+#message {
+  bottom: 10%;
+  color: #fff7af;
+  font-size: clamp(.8rem, 2vw, 1rem);
+  left: 50%;
+  position: fixed;
+  text-align: center;
+  text-shadow: 0 0 8px #fb2;
+  transform: translateX(-50%);
+}
