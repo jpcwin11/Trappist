@@ -20,8 +20,13 @@
   let ship = { x: 0, y: -50, vx: 0, vy: 0, fuel: 100 };
   let mode = "flight";
   let currentPlanet = null;
-  let rover = { x: 0, y: 0, heading: 0 };
+  let rover = { x: 0, y: 0, heading: 0, health: 100 };
+  let enemies = [];
   let shots = [];
+  let fireCooldown = 0;
+  let enemyCooldown = 0;
+  let mouseDown = false;
+  let kills = 0;
   let last = performance.now();
   let noteTimer = 0;
 
@@ -35,9 +40,23 @@
     keys.add(event.key.toLowerCase());
     if (event.key.toLowerCase() === "l") toggleLanding();
     if (event.code === "Space") scan();
-    if (event.key.toLowerCase() === "f" && mode !== "flight") fire();
+    if (event.key.toLowerCase() === "f" && mode === "foot") fire();
+    if (event.key === "Enter" && mode === "foot" && rover.health <= 0) restartCombat();
   });
   addEventListener("keyup", event => keys.delete(event.key.toLowerCase()));
+  canvas.addEventListener("click", () => {
+    if (mode !== "foot" || rover.health <= 0) return;
+    if (canvas.requestPointerLock) canvas.requestPointerLock();
+    fire();
+  });
+  canvas.addEventListener("pointerdown", () => { mouseDown = true; });
+  addEventListener("pointerup", () => { mouseDown = false; });
+  addEventListener("mousemove", event => {
+    if (mode === "foot" && document.pointerLockElement === canvas) {
+      rover.heading += event.movementX * .0025;
+    }
+  });
+  canvas.addEventListener("contextmenu", event => event.preventDefault());
   resize();
 
   const say = text => { message.textContent = text; noteTimer = 3; };
@@ -54,8 +73,19 @@
       if (nearby.distance > 6) return say("Move within 6 AU of a planet to land.");
       currentPlanet = nearby.planet;
       mode = "foot";
-      rover = { x: 0, y: 0, heading: 0 };
-      say(`Touchdown on TRAPPIST-1${currentPlanet.name}. Press R to deploy rover.`);
+      rover = { x: 0, y: 0, heading: 0, health: 100 };
+      kills = 0;
+      enemies = Array.from({ length: 6 }, (_, index) => {
+        const angle = index * Math.PI * 2 / 6 + Math.random() * .5;
+        const distance = 14 + Math.random() * 22;
+        return {
+          x: Math.sin(angle) * distance,
+          y: -Math.cos(angle) * distance,
+          health: 2,
+          cooldown: 1 + Math.random() * 2,
+        };
+      });
+      say(`Touchdown on TRAPPIST-1${currentPlanet.name}. Hostiles detected!`);
     } else {
       mode = "flight";
       const angle = currentPlanet.angle;
@@ -71,16 +101,59 @@
       const nearby = nearestPlanet();
       say(`Scanner: TRAPPIST-1${nearby.planet.name}, ${nearby.distance.toFixed(1)} AU away.`);
     } else {
-      say(`${mode === "rover" ? "Rover" : "Suit"} scanner: basaltic plain, trace minerals detected.`);
+      if (mode === "foot") {
+        const alive = enemies.filter(enemy => enemy.health > 0).length;
+        say(`Combat scan: ${alive} hostile${alive === 1 ? "" : "s"} remaining.`);
+      } else {
+        say("Rover scanner: basaltic plain, trace minerals detected.");
+      }
     }
+  }
 
-    function fire() {
-      shots.push({ life: .18 });
+  function fire() {
+    if (mode !== "foot" || rover.health <= 0 || fireCooldown > 0) return;
+    fireCooldown = .28;
+    shots.push({ life: .12 });
+    const facingX = Math.sin(rover.heading);
+    const facingY = -Math.cos(rover.heading);
+    const target = enemies
+      .filter(enemy => enemy.health > 0)
+      .map(enemy => {
+        const dx = enemy.x - rover.x, dy = enemy.y - rover.y;
+        return { enemy, depth: dx * facingX + dy * facingY, side: dx * Math.cos(rover.heading) + dy * Math.sin(rover.heading) };
+      })
+      .filter(item => item.depth > 0 && item.depth < 45 && Math.abs(item.side) < item.depth * .055 + .25)
+      .sort((a, b) => a.depth - b.depth)[0];
+    if (target) {
+      target.enemy.health -= 1;
+      if (target.enemy.health <= 0) {
+        kills++;
+        say(`Hostile eliminated. ${enemies.filter(enemy => enemy.health > 0).length} remaining.`);
+      } else {
+        say("Target hit.");
+      }
+    } else {
       say("Pulse round fired.");
     }
   }
 
+  function restartCombat() {
+    rover = { x: 0, y: 0, heading: 0, health: 100 };
+    kills = 0;
+    enemies.forEach((enemy, index) => {
+      const angle = index * Math.PI * 2 / enemies.length + Math.random() * .5;
+      const distance = 14 + Math.random() * 22;
+      enemy.x = Math.sin(angle) * distance;
+      enemy.y = -Math.cos(angle) * distance;
+      enemy.health = 2;
+      enemy.cooldown = 1 + Math.random() * 2;
+    });
+    say("Suit systems restored. Clear the hostiles.");
+  }
+
   function update(dt) {
+    fireCooldown = Math.max(0, fireCooldown - dt);
+    if (mouseDown && mode === "foot") fire();
     if (mode === "flight") {
       const thrust = 18 * dt;
       if (keys.has("w") || keys.has("arrowup")) ship.vy -= thrust;
@@ -96,12 +169,28 @@
         keys.delete("r");
         say(mode === "rover" ? "Rover deployed." : "Exited rover.");
       }
-      const speed = mode === "rover" ? 10 : 4;
-      if (keys.has("a") || keys.has("arrowleft")) rover.heading -= dt * 2.5;
-      if (keys.has("d") || keys.has("arrowright")) rover.heading += dt * 2.5;
+      const speed = mode === "rover" ? 10 : keys.has("shift") ? 10 : 7;
+      if (keys.has("a") || keys.has("arrowleft")) rover.heading -= dt * (mode === "rover" ? 2.5 : 1.8);
+      if (keys.has("d") || keys.has("arrowright")) rover.heading += dt * (mode === "rover" ? 2.5 : 1.8);
       const direction = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
       rover.x += Math.sin(rover.heading) * direction * speed * dt;
       rover.y -= Math.cos(rover.heading) * direction * speed * dt;
+      if (mode === "foot" && rover.health > 0) {
+        enemies.forEach(enemy => {
+          if (enemy.health <= 0) return;
+          const dx = rover.x - enemy.x, dy = rover.y - enemy.y;
+          const distance = Math.hypot(dx, dy);
+          enemy.cooldown -= dt;
+          if (distance > 2.5) {
+            enemy.x += dx / distance * dt * 1.25;
+            enemy.y += dy / distance * dt * 1.25;
+          } else if (enemy.cooldown <= 0) {
+            rover.health = Math.max(0, rover.health - 12);
+            enemy.cooldown = 1.2;
+            say(rover.health ? `Incoming fire! Suit integrity ${rover.health}%.` : "Suit critical. Press Enter to restart.");
+          }
+        });
+      }
     }
     planets.forEach(planet => { planet.angle += dt * (.07 / Math.sqrt(planet.orbit)); });
     shots = shots.filter(shot => (shot.life -= dt) > 0);
@@ -141,25 +230,90 @@
     }
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#e9d8a6"; ctx.beginPath(); ctx.arc(w * .78, h * .2, 35, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#baffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(w / 2 - 14, h / 2); ctx.lineTo(w / 2 + 14, h / 2); ctx.moveTo(w / 2, h / 2 - 14); ctx.lineTo(w / 2, h / 2 + 14); ctx.stroke();
-    if (shots.length) {
-      ctx.strokeStyle = "#fff3a1"; ctx.lineWidth = 4; ctx.beginPath();
-      ctx.moveTo(w / 2, h / 2); ctx.lineTo(w / 2, h * .48); ctx.stroke();
-    }
     if (mode === "rover") {
       ctx.fillStyle = "#b8c5cc"; ctx.fillRect(w / 2 - 28, h - 105, 56, 22);
       ctx.fillStyle = "#1a2530"; [-22, 12].forEach(x => { ctx.beginPath(); ctx.arc(w / 2 + x, h - 78, 10, 0, Math.PI * 2); ctx.fill(); });
     }
   }
 
+  function firstPerson() {
+    const w = innerWidth, h = innerHeight, horizon = h * .43;
+    const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+    sky.addColorStop(0, "#071522"); sky.addColorStop(1, "#8b604b");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, w, horizon);
+    ctx.fillStyle = currentPlanet.color; ctx.globalAlpha = .55;
+    ctx.beginPath(); ctx.moveTo(0, horizon);
+    for (let x = 0; x <= w; x += w / 8) {
+      ctx.lineTo(x, horizon - 25 - Math.sin(x * .013 + currentPlanet.index) * 24);
+    }
+    ctx.lineTo(w, horizon); ctx.fill(); ctx.globalAlpha = 1;
+    const ground = ctx.createLinearGradient(0, horizon, 0, h);
+    ground.addColorStop(0, "#604c3b"); ground.addColorStop(1, "#171c1d");
+    ctx.fillStyle = ground; ctx.fillRect(0, horizon, w, h - horizon);
+    ctx.strokeStyle = "rgba(220,190,145,.16)"; ctx.lineWidth = 1;
+    for (let i = 1; i <= 12; i++) {
+      const y = horizon + (h - horizon) * i * i / 144;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    for (let i = -10; i <= 10; i++) {
+      ctx.beginPath(); ctx.moveTo(w / 2, horizon); ctx.lineTo(w / 2 + i * w / 10, h); ctx.stroke();
+    }
+
+    const facingX = Math.sin(rover.heading), facingY = -Math.cos(rover.heading);
+    const visible = enemies.filter(enemy => enemy.health > 0).map(enemy => {
+      const dx = enemy.x - rover.x, dy = enemy.y - rover.y;
+      return {
+        enemy,
+        depth: dx * facingX + dy * facingY,
+        side: dx * Math.cos(rover.heading) + dy * Math.sin(rover.heading),
+      };
+    }).filter(item => item.depth > .5 && Math.abs(item.side / item.depth) < 1.5)
+      .sort((a, b) => b.depth - a.depth);
+    visible.forEach(({ enemy, depth, side }) => {
+      const size = Math.min(h * .45, h * 1.2 / depth);
+      const x = w / 2 + side / depth * w * .52;
+      const y = horizon + (h - horizon) * .42 - size * .48;
+      ctx.fillStyle = "#342b2d"; ctx.fillRect(x - size * .24, y + size * .25, size * .48, size * .55);
+      ctx.fillStyle = "#a34a3d"; ctx.fillRect(x - size * .29, y + size * .2, size * .58, size * .42);
+      ctx.fillStyle = "#d5bd9a"; ctx.beginPath(); ctx.arc(x, y + size * .08, size * .2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#ff463d"; ctx.fillRect(x - size * .12, y + size * .06, size * .07, size * .035);
+      ctx.fillRect(x + size * .05, y + size * .06, size * .07, size * .035);
+      ctx.fillStyle = "#101315"; ctx.fillRect(x - size * .3, y - size * .12, size * .6, 4);
+      ctx.fillStyle = "#ff554b"; ctx.fillRect(x - size * .3, y - size * .12, size * .6 * enemy.health / 2, 4);
+    });
+
+    if (rover.health > 0) {
+      ctx.fillStyle = "#1d2930"; ctx.beginPath();
+      ctx.moveTo(w * .43, h); ctx.lineTo(w * .46, h * .83); ctx.lineTo(w * .54, h * .83);
+      ctx.lineTo(w * .59, h); ctx.fill();
+      ctx.fillStyle = "#647c83"; ctx.fillRect(w * .47, h * .78, w * .07, h * .17);
+      ctx.fillStyle = "#25363b"; ctx.fillRect(w * .485, h * .75, w * .04, h * .12);
+      if (shots.length) {
+        ctx.fillStyle = "#fff3a1"; ctx.beginPath();
+        ctx.moveTo(w * .49, h * .77); ctx.lineTo(w * .5, h * .68); ctx.lineTo(w * .51, h * .77); ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = "rgba(90,0,0,.45)"; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 24px monospace"; ctx.textAlign = "center";
+      ctx.fillText("SUIT FAILURE — PRESS ENTER TO RETRY", w / 2, h * .68); ctx.textAlign = "start";
+    }
+    ctx.strokeStyle = "#baffff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(w / 2 - 12, h / 2); ctx.lineTo(w / 2 - 4, h / 2);
+    ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 12, h / 2);
+    ctx.moveTo(w / 2, h / 2 - 12); ctx.lineTo(w / 2, h / 2 - 4);
+    ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 12); ctx.stroke();
+  }
+
   function draw() {
-    if (mode === "flight") space(); else surface();
+    if (mode === "flight") space(); else if (mode === "foot") firstPerson(); else surface();
     const target = mode === "flight" ? nearestPlanet() : { planet: currentPlanet, distance: 0 };
-    status.textContent = mode === "flight" ? "SHIP IN ORBIT" : mode === "rover" ? "ROVER EXPLORATION" : "ON FOOT / EXOSUIT";
+    status.textContent = mode === "flight" ? "SHIP IN ORBIT" : mode === "rover" ? "ROVER EXPLORATION" : "HOSTILE CONTACT";
     locationText.textContent = mode === "flight" ? `Nearest: TRAPPIST-1${target.planet.name}` : `Surface: TRAPPIST-1${currentPlanet.name}`;
     telemetry.textContent = mode === "flight"
       ? `Velocity: ${Math.hypot(ship.vx, ship.vy).toFixed(1)} AU/s  ·  Fuel: ${ship.fuel.toFixed(0)}%  ·  Distance: ${target.distance.toFixed(1)} AU`
-      : `Coordinates: ${rover.x.toFixed(0)}, ${rover.y.toFixed(0)} m  ·  ${mode === "rover" ? "WASD drive · R exit · L launch" : "WASD explore · F fire · R rover · L launch"}`;
+      : mode === "rover"
+        ? `Coordinates: ${rover.x.toFixed(0)}, ${rover.y.toFixed(0)} m  ·  WASD drive · R exit · L launch`
+        : `Suit: ${rover.health}%  ·  Hostiles: ${enemies.filter(enemy => enemy.health > 0).length}  ·  Eliminated: ${kills}`;
   }
 
   function frame(time) {
