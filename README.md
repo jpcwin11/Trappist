@@ -1,8 +1,8 @@
 # TRAPPIST-1 Explorer
 
-A self-contained browser prototype for exploring the seven known TRAPPIST-1
-planets. Open `index.html` in a modern browser (or serve this directory with
-any static web server).
+I built this small browser prototype to explore the seven known TRAPPIST-1
+worlds. Open `index.html` in a modern browser, or serve this directory with
+any static web server.
 
 ## GitHub Pages
 
@@ -13,9 +13,9 @@ then visit `https://jpcwin11.github.io/Trappist/` after a successful deployment.
 ## Controls
 
 - **WASD / arrow keys:** fly, walk, or drive
-- **L:** land when close to a planet; launch when on its surface
+- **L:** land when I'm close to a planet; launch when I'm on the surface
 - **R:** enter or exit the rover after landing
 - **Space:** scan the current location
 - **F:** fire the exosuit pulse weapon while exploring on foot
 
-Fly near any labeled world and land to explore it on foot or in the rover.
+I fly near any labeled world and land to explore it on foot or in the rover.
