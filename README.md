@@ -4,6 +4,12 @@ A self-contained browser prototype for exploring the seven known TRAPPIST-1
 planets. Open `index.html` in a modern browser (or serve this directory with
 any static web server).
 
+## GitHub Pages
+
+Every push to `main` deploys the current game to GitHub Pages. In the
+repository's **Settings → Pages**, set the source to **GitHub Actions** once,
+then visit `https://jpcwin11.github.io/Trappist/` after a successful deployment.
+
 ## Controls
 
 - **WASD / arrow keys:** fly, walk, or drive
