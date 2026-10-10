@@ -12,7 +12,9 @@ then visit `https://jpcwin11.github.io/Trappist/` after a successful deployment.
 
 ## Controls
 
-- **WASD / arrow keys:** fly, walk, or drive
+- **Flight (first-person cockpit):** W/S throttle, A/D turn, ↑/↓ pitch
+- **Shift + W:** hyperdrive for fast travel (auto-slows near planets)
+- **WASD / arrow keys:** walk or drive on the surface
 - **L:** land when close to a planet; launch when on its surface
 - **R:** enter or exit the rover after landing
 - **Space:** scan the current location
