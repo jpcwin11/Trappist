@@ -36,21 +36,23 @@
   let noteTimer = 0;
   let cameraShake = 0;
   let motionEnergy = 0;
+  let muzzleFlash = 0;
   let vignetteGradient = null;
 
   // Camera and motion tuning constants: larger shock values amplify the motion; larger decay values make the effect persist longer.
-  const SHAKE_SCALE = 4.2;
-  const SHAKE_DECAY = 0.86;
-  const HIT_SHAKE = 10;
-  const VELOCITY_SHAKE_FACTOR = 0.08;
-  const MAX_SHAKE = 18;
-  const SHAKE_OVERSCAN = 80;
-  const MOTION_GAIN = 1.5;
+  const SHAKE_SCALE = 4.6;
+  const SHAKE_DECAY = 0.9;
+  const HIT_SHAKE = 12;
+  const VELOCITY_SHAKE_FACTOR = 0.12;
+  const MAX_SHAKE = 22;
+  const SHAKE_OVERSCAN = 90;
+  const MOTION_GAIN = 1.8;
   const MOTION_DECAY = 0.8;
-  const MOTION_TINT_ALPHA = 0.18;
+  const MOTION_TINT_ALPHA = 0.22;
   const MOTION_TINT_SPEED = 5;
-  const MOTION_TINT_GAIN = 0.35;
-  const MOTION_TINT_BASE = 0.14;
+  const MOTION_TINT_GAIN = 0.42;
+  const MOTION_TINT_BASE = 0.18;
+  const MUZZLE_FLASH_DECAY = 7;
   const GROUND_DETAIL_COUNT = 38;
   const GROUND_DETAIL_OFFSET = 18;
   const GROUND_DETAIL_SPACING = 37;
@@ -166,6 +168,7 @@
   function fire() {
     if (mode !== "foot" || rover.health <= 0 || fireCooldown > 0) return;
     fireCooldown = .28;
+    muzzleFlash = 1;
     shots.push({ life: .12 });
     const facingX = Math.sin(rover.heading);
     const facingY = -Math.cos(rover.heading);
@@ -179,6 +182,7 @@
       .sort((a, b) => a.depth - b.depth)[0];
     if (target) {
       target.enemy.health -= 1;
+      cameraShake = Math.max(cameraShake, 4.5);
       if (target.enemy.health <= 0) {
         kills++;
         say(`Hostile eliminated. ${enemies.filter(enemy => enemy.health > 0).length} remaining.`);
@@ -258,6 +262,7 @@
     shots = shots.filter(shot => (shot.life -= dt) > 0);
     if (noteTimer > 0) { noteTimer -= dt; if (noteTimer <= 0) message.textContent = ""; }
     cameraShake *= Math.pow(SHAKE_DECAY, dt * 60);
+    muzzleFlash = Math.max(0, muzzleFlash - dt * MUZZLE_FLASH_DECAY);
     motionEnergy = Math.max(0, motionEnergy - dt * MOTION_DECAY);
   }
 
@@ -386,25 +391,47 @@
       glow.addColorStop(0.35, "rgba(255, 80, 64, 0.2)");
       glow.addColorStop(1, "rgba(255, 80, 64, 0)");
       ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, glowRadius, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#342b2d"; ctx.fillRect(x - size * .24, y + size * .25, size * .48, size * .55);
-      ctx.fillStyle = "#a34a3d"; ctx.fillRect(x - size * .29, y + size * .2, size * .58, size * .42);
+
+      const suitTint = enemy.health === 2 ? "#a34a3d" : "#723d3d";
+      const armorGlow = ctx.createLinearGradient(x - size * .4, y - size * .2, x + size * .4, y + size * .8);
+      armorGlow.addColorStop(0, hexToRgba(palette.accent, 0.2));
+      armorGlow.addColorStop(0.25, "rgba(110, 126, 138, 0.9)");
+      armorGlow.addColorStop(1, "rgba(25, 28, 34, 0.96)");
+      ctx.fillStyle = armorGlow;
+      ctx.fillRect(x - size * .24, y + size * .25, size * .48, size * .55);
+      ctx.fillStyle = suitTint; ctx.fillRect(x - size * .29, y + size * .2, size * .58, size * .42);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.18)"; ctx.fillRect(x - size * .2, y + size * .22, size * .4, size * .06);
       ctx.fillStyle = "#d5bd9a"; ctx.beginPath(); ctx.arc(x, y + size * .08, size * .2, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#ff463d"; ctx.fillRect(x - size * .12, y + size * .06, size * .07, size * .035);
+      ctx.fillStyle = "rgba(255, 90, 64, 0.8)"; ctx.fillRect(x - size * .12, y + size * .06, size * .07, size * .035);
       ctx.fillRect(x + size * .05, y + size * .06, size * .07, size * .035);
-      ctx.fillStyle = "#101315"; ctx.fillRect(x - size * .3, y - size * .12, size * .6, 4);
+      ctx.fillStyle = "rgba(15, 22, 28, 0.95)"; ctx.fillRect(x - size * .3, y - size * .12, size * .6, 4);
       ctx.fillStyle = "#ff554b"; ctx.fillRect(x - size * .3, y - size * .12, size * .6 * enemy.health / 2, 4);
-      ctx.strokeStyle = "rgba(255,166,100,0.16)"; ctx.lineWidth = 1.2; ctx.strokeRect(x - size * .34, y - size * .17, size * .68, size * .9);
+      ctx.strokeStyle = "rgba(255,166,100,0.2)"; ctx.lineWidth = 1.2; ctx.strokeRect(x - size * .34, y - size * .17, size * .68, size * .9);
+      ctx.strokeStyle = hexToRgba(palette.accent, 0.2); ctx.beginPath(); ctx.arc(x, y, size * .42, 0, Math.PI * 2); ctx.stroke();
     });
 
     if (rover.health > 0) {
-      ctx.fillStyle = "rgba(25,35,45,0.88)"; ctx.beginPath();
+      const suitPulse = 0.6 + muzzleFlash * 0.5;
+      const suitX = w * .5;
+      const suitY = h * .82;
+      const glow = ctx.createRadialGradient(suitX, suitY, 0, suitX, suitY, w * .18);
+      glow.addColorStop(0, `rgba(158, 221, 255, ${0.12 + muzzleFlash * 0.18})`);
+      glow.addColorStop(0.3, `rgba(114, 190, 255, ${0.12 + muzzleFlash * 0.14})`);
+      glow.addColorStop(1, "rgba(114, 190, 255, 0)");
+      ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = `rgba(25,35,45,${0.88 + suitPulse * 0.08})`; ctx.beginPath();
       ctx.moveTo(w * .43, h); ctx.lineTo(w * .46, h * .83); ctx.lineTo(w * .54, h * .83);
       ctx.lineTo(w * .59, h); ctx.fill();
       ctx.fillStyle = "#6d7e85"; ctx.fillRect(w * .47, h * .78, w * .07, h * .17);
       ctx.fillStyle = "#25363b"; ctx.fillRect(w * .485, h * .75, w * .04, h * .12);
-      ctx.fillStyle = "rgba(152, 219, 255, 0.8)"; ctx.fillRect(w * .487, h * .74, w * .026, h * .1);
+      ctx.fillStyle = `rgba(152, 219, 255, ${0.8 + suitPulse * 0.2})`; ctx.fillRect(w * .487, h * .74, w * .026, h * .1);
       ctx.fillStyle = "rgba(180, 221, 255, 0.22)"; ctx.fillRect(w * .466, h * .72, w * .093, h * .12);
-      if (shots.length) {
+      if (muzzleFlash > 0 || shots.length) {
+        const flare = ctx.createRadialGradient(w * .5, h * .75, 0, w * .5, h * .75, w * .08);
+        flare.addColorStop(0, `rgba(255, 246, 190, ${0.7 * muzzleFlash + 0.25})`);
+        flare.addColorStop(0.2, `rgba(255, 194, 94, ${0.4 * muzzleFlash + 0.12})`);
+        flare.addColorStop(1, "rgba(255, 194, 94, 0)");
+        ctx.fillStyle = flare; ctx.fillRect(w * .46, h * .68, w * .08, h * .12);
         ctx.fillStyle = "#fff3a1"; ctx.beginPath();
         ctx.moveTo(w * .49, h * .77); ctx.lineTo(w * .5, h * .68); ctx.lineTo(w * .51, h * .77); ctx.fill();
       }
@@ -435,6 +462,7 @@
     ctx.fillStyle = "#02060b"; ctx.fillRect(-SHAKE_OVERSCAN, -SHAKE_OVERSCAN, w + SHAKE_OVERSCAN * 2, h + SHAKE_OVERSCAN * 2);
     if (mode === "flight") space(); else if (mode === "foot") firstPerson(); else surface();
     ctx.restore();
+
     if (vignetteGradient) {
       ctx.fillStyle = vignetteGradient; ctx.fillRect(0, 0, w, h);
     }
@@ -442,6 +470,13 @@
     if (motionTint > 0) {
       ctx.fillStyle = `rgba(10, 15, 22, ${motionTint * MOTION_TINT_ALPHA})`;
       ctx.fillRect(0, 0, w, h);
+    }
+    if (muzzleFlash > 0) {
+      const muzzleGlow = ctx.createRadialGradient(w * .5, h * .78, 0, w * .5, h * .78, w * .25);
+      muzzleGlow.addColorStop(0, `rgba(255, 224, 150, ${0.18 * muzzleFlash})`);
+      muzzleGlow.addColorStop(0.3, `rgba(255, 175, 117, ${0.12 * muzzleFlash})`);
+      muzzleGlow.addColorStop(1, "rgba(255, 175, 117, 0)");
+      ctx.fillStyle = muzzleGlow; ctx.fillRect(0, 0, w, h);
     }
     const target = mode === "flight" ? nearestPlanet() : { planet: currentPlanet, distance: 0 };
     status.textContent = mode === "flight" ? "SHIP IN ORBIT" : mode === "rover" ? "ROVER EXPLORATION" : "HOSTILE CONTACT";
