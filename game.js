@@ -125,28 +125,17 @@
   function toggleLanding() {
     if (mode === "flight") {
       const nearby = nearestPlanet();
-      if (nearby.distance > 6) return say("Move within 6 AU of a planet to land.");
+      if (nearby.distance > 6) return say("I need to get within 6 AU of a planet before I can land.");
       currentPlanet = nearby.planet;
       mode = "foot";
-      rover = { x: 0, y: 0, heading: 0, health: 100 };
-      kills = 0;
-      enemies = Array.from({ length: 6 }, (_, index) => {
-        const angle = index * Math.PI * 2 / 6 + Math.random() * .5;
-        const distance = 14 + Math.random() * 22;
-        return {
-          x: Math.sin(angle) * distance,
-          y: -Math.cos(angle) * distance,
-          health: 2,
-          cooldown: 1 + Math.random() * 2,
-        };
-      });
-      say(`Touchdown on TRAPPIST-1${currentPlanet.name}. Hostiles detected!`);
+      rover = { x: 0, y: 0, heading: 0 };
+      say(`Touchdown on TRAPPIST-1${currentPlanet.name}. I’m on the surface. Press R to deploy the rover.`);
     } else {
       mode = "flight";
       const angle = currentPlanet.angle;
       ship.x = Math.cos(angle) * currentPlanet.orbit;
       ship.y = Math.sin(angle) * currentPlanet.orbit - 5;
-      say("Launch complete. Ship in orbit.");
+      say("Launch complete. I’m back in orbit.");
       currentPlanet = null;
     }
   }
@@ -154,14 +143,9 @@
   function scan() {
     if (mode === "flight") {
       const nearby = nearestPlanet();
-      say(`Scanner: TRAPPIST-1${nearby.planet.name}, ${nearby.distance.toFixed(1)} AU away.`);
+      say(`Scanner lock: TRAPPIST-1${nearby.planet.name}, ${nearby.distance.toFixed(1)} AU away.`);
     } else {
-      if (mode === "foot") {
-        const alive = enemies.filter(enemy => enemy.health > 0).length;
-        say(`Combat scan: ${alive} hostile${alive === 1 ? "" : "s"} remaining.`);
-      } else {
-        say("Rover scanner: basaltic plain, trace minerals detected.");
-      }
+      say(`${mode === "rover" ? "Rover" : "Suit"} scanner: basaltic plains, trace minerals detected.`);
     }
   }
 
@@ -492,6 +476,6 @@
     const dt = Math.min((time - last) / 1000, .05); last = time;
     update(dt); draw(); requestAnimationFrame(frame);
   }
-  say("Welcome, pilot. Fly to any of the seven worlds.");
+  say("I’m in the cockpit. I need to reach one of the seven worlds.");
   requestAnimationFrame(frame);
 })();
