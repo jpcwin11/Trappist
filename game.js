@@ -18,20 +18,23 @@
     return { x: Math.cos(a) * r, y: Math.sin(a) * r, z, brightness: Math.random() * .8 + .2 };
   });
   const NORMAL_SPEED = 8, HYPER_SPEED = 400;
+  const ENEMY_COUNT = 5;
   const keys = new Set();
-  const MOVE_KEYS = ["w", "s", "a", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"];
   const FORWARD_KEYS = ["w", "arrowup"];
   const REVERSE_KEYS = ["s", "arrowdown"];
   const LEFT_KEYS = ["a", "arrowleft"];
   const RIGHT_KEYS = ["d", "arrowright"];
-  let ship = { x: 0, y: -50, vx: 0, vy: 0, fuel: 100 };
+
+  // FIX: every field the flight code reads is initialised up front (z, yaw, pitch, speed, hyper were missing,
+  // which produced NaN in the camera math and made createRadialGradient throw).
+  // yaw = PI/2 points the ship along +y, toward the sun at the origin.
+  let ship = { x: 0, y: -50, z: 0, yaw: Math.PI / 2, pitch: 0, speed: 0, hyper: false, fuel: 100 };
   let mode = "flight";
   let currentPlanet = null;
   let rover = { x: 0, y: 0, heading: 0, health: 100 };
   let enemies = [];
   let shots = [];
   let fireCooldown = 0;
-  let enemyCooldown = 0;
   let mouseDown = false;
   let kills = 0;
   let last = performance.now();
@@ -45,7 +48,7 @@
   const SHAKE_SCALE = 4.6;
   const SHAKE_DECAY = 0.9;
   const HIT_SHAKE = 12;
-  const VELOCITY_SHAKE_FACTOR = 0.12;
+  const SPEED_SHAKE_FACTOR = 0.012; // flight shake per AU/s of ship speed (only noticeable under hyperdrive)
   const MAX_SHAKE = 22;
   const SHAKE_OVERSCAN = 90;
   const MOTION_GAIN = 1.8;
@@ -124,13 +127,29 @@
     return !closest || distance < closest.distance ? { planet, distance } : closest;
   }, null);
 
+  function spawnEnemies() {
+    enemies = Array.from({ length: ENEMY_COUNT }, (_, index) => {
+      const angle = index * Math.PI * 2 / ENEMY_COUNT + Math.random() * .5;
+      const distance = 14 + Math.random() * 22;
+      return {
+        x: Math.sin(angle) * distance,
+        y: -Math.cos(angle) * distance,
+        health: 2,
+        cooldown: 1 + Math.random() * 2,
+      };
+    });
+  }
+
   function toggleLanding() {
     if (mode === "flight") {
       const nearby = nearestPlanet();
       if (nearby.distance > 6) return say("I need to get within 6 AU of a planet before I can land.");
       currentPlanet = nearby.planet;
       mode = "foot";
-      rover = { x: 0, y: 0, heading: 0 };
+      // FIX: health was missing here, so the first hit turned it into NaN.
+      rover = { x: 0, y: 0, heading: 0, health: 100 };
+      kills = 0;
+      spawnEnemies();
       say(`Touchdown on TRAPPIST-1${currentPlanet.name}. I’m on the surface. Press R to deploy the rover.`);
     } else {
       mode = "flight";
@@ -138,6 +157,7 @@
       ship.x = Math.cos(angle) * currentPlanet.orbit;
       ship.y = Math.sin(angle) * currentPlanet.orbit - 5;
       ship.z = 0; ship.yaw = Math.PI / 2; ship.pitch = 0; ship.speed = 0; ship.hyper = false;
+      enemies = [];
       say("Launch complete. Ship in orbit.");
       currentPlanet = null;
     }
@@ -199,16 +219,16 @@
     fireCooldown = Math.max(0, fireCooldown - dt);
     if (mouseDown && mode === "foot") fire();
     if (mode === "flight") {
-      const down = (...k) => k.some(key => keys.has(key));
-      if (down("a", "arrowleft")) ship.yaw -= dt * 1.2;
-      if (down("d", "arrowright")) ship.yaw += dt * 1.2;
-      if (down("arrowup")) ship.pitch = Math.min(1.4, ship.pitch + dt * 1);
-      if (down("arrowdown")) ship.pitch = Math.max(-1.4, ship.pitch - dt * 1);
-      ship.hyper = down("shift") && ship.fuel > 0;
+      // FIX: screen-right is +yaw's negative direction with this camera basis, so D now decreases yaw (turns right).
+      if (isDown(...LEFT_KEYS)) ship.yaw += dt * 1.2;
+      if (isDown(...RIGHT_KEYS)) ship.yaw -= dt * 1.2;
+      if (keys.has("arrowup")) ship.pitch = Math.min(1.4, ship.pitch + dt * 1);
+      if (keys.has("arrowdown")) ship.pitch = Math.max(-1.4, ship.pitch - dt * 1);
+      ship.hyper = keys.has("shift") && ship.fuel > 0;
       const near = nearestPlanet().distance;
       // slow down automatically when approaching a world so hyperdrive can't overshoot it
       const cap = ship.hyper ? Math.min(HYPER_SPEED, Math.max(NORMAL_SPEED, near * 2)) : NORMAL_SPEED;
-      const target = down("w") ? cap : down("s") ? -NORMAL_SPEED / 2 : 0;
+      const target = keys.has("w") ? cap : keys.has("s") ? -NORMAL_SPEED / 2 : 0;
       ship.speed += (target - ship.speed) * Math.min(1, dt * (ship.hyper ? 3 : 1.5));
       if (Math.abs(ship.speed) < .01) ship.speed = 0;
       if (ship.speed > cap) ship.speed = cap;
@@ -217,18 +237,12 @@
       ship.y += Math.sin(ship.yaw) * cp * ship.speed * dt;
       ship.z += Math.sin(ship.pitch) * ship.speed * dt;
       ship.fuel = Math.max(0, ship.fuel - (ship.hyper ? dt * 1.5 : ship.speed ? dt * .1 : 0));
-      const thrust = 18 * dt;
-      const moving = isDown(...FORWARD_KEYS, ...REVERSE_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS);
-      if (isDown(...FORWARD_KEYS)) ship.vy -= thrust;
-      if (isDown(...REVERSE_KEYS)) ship.vy += thrust;
-      if (isDown(...LEFT_KEYS)) ship.vx -= thrust;
-      if (isDown(...RIGHT_KEYS)) ship.vx += thrust;
-      ship.vx *= .985; ship.vy *= .985;
-      ship.x += ship.vx * dt; ship.y += ship.vy * dt;
-      ship.fuel = Math.max(0, ship.fuel - (moving ? dt * .18 : 0));
+
+      // FIX: removed the second movement system (vx/vy thrust on world axes) that fought with ship.speed/yaw.
+      const moving = isDown(...FORWARD_KEYS, ...REVERSE_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS) || ship.speed !== 0;
       addMotion(moving ? dt * MOTION_GAIN : 0);
-      const velocityShake = Math.min(MAX_SHAKE, Math.hypot(ship.vx, ship.vy) * VELOCITY_SHAKE_FACTOR);
-      cameraShake = Math.max(cameraShake, moving ? velocityShake : 0);
+      const speedShake = Math.min(MAX_SHAKE, Math.abs(ship.speed) * SPEED_SHAKE_FACTOR);
+      cameraShake = Math.max(cameraShake, speedShake);
     } else {
       if (keys.has("r")) {
         mode = mode === "rover" ? "foot" : "rover";
@@ -507,13 +521,11 @@
 
   function draw() {
     const w = innerWidth, h = innerHeight;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#02060b"; ctx.fillRect(0, 0, w, h);
     const shakeMagnitude = Math.min(MAX_SHAKE, cameraShake);
     const shakeX = (Math.random() - 0.5) * shakeMagnitude * SHAKE_SCALE;
     const shakeY = (Math.random() - 0.5) * shakeMagnitude * SHAKE_SCALE;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#02060b"; ctx.fillRect(0, 0, w, h);
     ctx.save();
     ctx.translate(shakeX, shakeY);
     ctx.fillStyle = "#02060b"; ctx.fillRect(-SHAKE_OVERSCAN, -SHAKE_OVERSCAN, w + SHAKE_OVERSCAN * 2, h + SHAKE_OVERSCAN * 2);
@@ -523,7 +535,7 @@
     if (vignetteGradient) {
       ctx.fillStyle = vignetteGradient; ctx.fillRect(0, 0, w, h);
     }
-    const motionTint = Math.min(1, motionEnergy * MOTION_TINT_GAIN + (mode === "flight" && Math.hypot(ship.vx, ship.vy) > MOTION_TINT_SPEED ? MOTION_TINT_BASE : 0));
+    const motionTint = Math.min(1, motionEnergy * MOTION_TINT_GAIN + (mode === "flight" && Math.abs(ship.speed) > MOTION_TINT_SPEED ? MOTION_TINT_BASE : 0));
     if (motionTint > 0) {
       ctx.fillStyle = `rgba(10, 15, 22, ${motionTint * MOTION_TINT_ALPHA})`;
       ctx.fillRect(0, 0, w, h);
@@ -539,15 +551,17 @@
     status.textContent = mode === "flight" ? "SHIP IN ORBIT" : mode === "rover" ? "ROVER EXPLORATION" : "HOSTILE CONTACT";
     locationText.textContent = mode === "flight" ? `Nearest: TRAPPIST-1${target.planet.name}` : `Surface: TRAPPIST-1${currentPlanet.name}`;
     telemetry.textContent = mode === "flight"
-      ? `Velocity: ${Math.hypot(ship.vx, ship.vy).toFixed(1)} AU/s  ·  Fuel: ${ship.fuel.toFixed(0)}%  ·  Distance: ${target.distance.toFixed(1)} AU`
+      ? `Velocity: ${Math.abs(ship.speed).toFixed(1)} AU/s  ·  Fuel: ${ship.fuel.toFixed(0)}%  ·  Distance: ${target.distance.toFixed(1)} AU`
       : mode === "rover"
         ? `Coordinates: ${rover.x.toFixed(0)}, ${rover.y.toFixed(0)} m  ·  WASD drive · R exit · L launch`
         : `Suit: ${rover.health}%  ·  Hostiles: ${enemies.filter(enemy => enemy.health > 0).length}  ·  Eliminated: ${kills}`;
   }
 
   function frame(time) {
+    // FIX: schedule the next frame first so a single bad frame can't permanently freeze the game.
+    requestAnimationFrame(frame);
     const dt = Math.min((time - last) / 1000, .05); last = time;
-    update(dt); draw(); requestAnimationFrame(frame);
+    update(dt); draw();
   }
   say("I’m in the cockpit. I need to reach one of the seven worlds.");
   requestAnimationFrame(frame);
